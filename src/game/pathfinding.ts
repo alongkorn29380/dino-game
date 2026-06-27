@@ -50,3 +50,45 @@ export function reachableCells(
     }
     return result;
 }
+
+export function shortestPath(
+    start: Coord, 
+    goal: Coord,
+    w: number,
+    h: number,
+): Coord[] {
+    if (start.x === goal.x && start.y === goal.y) return [];
+
+    const came = new Map<string, Coord>();
+    const seen = new Set<string>([key(start)]);
+    let frontier: Coord[] = [start];
+
+    while (frontier.length > 0) {
+        const next: Coord[] = [];
+        for (const cell of frontier) {
+            for (const n of neighbors(cell, w, h)) {
+                if (seen.has(key(n))) continue;
+                seen.add(key(n));
+                came.set(key(n), cell);
+
+                if (n.x === goal.x && n.y === goal.y) {
+                    return rebuild(came, start, goal);
+                }
+                next.push(n);
+            }
+        }
+        frontier = next;
+    }
+    return [];
+}
+
+function rebuild(came: Map<string, Coord>, start: Coord, goal: Coord): Coord[] {
+    const path: Coord[] =[];
+    let cur: Coord = goal;
+    while (!(cur.x === start.x && cur.y === start.y)) {
+        path.push(cur)
+        cur = came.get(key(cur))!;
+    }
+    path.reverse();
+    return path;
+}

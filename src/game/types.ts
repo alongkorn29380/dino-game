@@ -11,8 +11,10 @@ export type Player = {
   id: number;
   name: string;
   color: string;
-  pos: Coord;
+  pos: Coord | null;
   alive: boolean;
+  hp: number;
+  hunger: number;
 };
 
 export type GameState = {
@@ -23,7 +25,7 @@ export type GameState = {
   turnIndex: number;
   round: number;
   dice: number;
-  phase: "move" | "action";
+  phase: "spawn" | "move" | "action" | "over";
   winnerId: number | null;
   log: string[];
 };
