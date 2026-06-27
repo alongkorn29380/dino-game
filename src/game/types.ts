@@ -23,7 +23,7 @@ export type GameState = {
   turnIndex: number;
   round: number;
   dice: number;
-  phase: "move" | "over";
+  phase: "move" | "action";
   winnerId: number | null;
   log: string[];
 };
