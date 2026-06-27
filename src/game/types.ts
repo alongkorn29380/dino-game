@@ -25,7 +25,7 @@ export type GameState = {
   turnIndex: number;
   round: number;
   dice: number;
-  phase: "spawn" | "move" | "action" | "over";
+  phase: "spawn" | "roll" | "move" | "action" | "over";
   winnerId: number | null;
   log: string[];
 };

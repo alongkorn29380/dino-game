@@ -15,7 +15,7 @@ const INITIAL_STATE: GameState = {
   dino: { pos: { x: Math.floor(CONFIG.GRID_W / 2), y: Math.floor(CONFIG.GRID_H / 2) } },
   turnIndex: 0,
   round: 1,
-  dice: 3,
+  dice: 0,
   phase: "spawn",
   winnerId: null,
   log: ["เลือกจุดเกิดได้เลย!"],
@@ -25,8 +25,7 @@ export function useGame() {
   const [state, setState] = useState<GameState>(INITIAL_STATE);
 
   const reachable = useMemo(() => {
-    if (state.phase === "over") return new Set<string>();
-    if (state.phase === "spawn") return new Set<string>();
+    if (state.phase !== "move") return new Set<string>();
 
     const cur = state.players[state.turnIndex];
     if (!cur || !cur.pos || !cur.alive) return new Set<string>();
@@ -41,6 +40,7 @@ export function useGame() {
     return new Set(cells.map(key));
   }, [state]);
 
+  // เลือกจุดเกิด
   function spawnPlayer(c: Coord) {
     if (state.phase !== "spawn") return;
 
@@ -59,8 +59,8 @@ export function useGame() {
           ...prevState,
           players: nextPlayers,
           turnIndex: 0,
-          dice: Math.floor(Math.random() * 6) + 1,
-          phase: "move" as const,
+          dice: 0,
+          phase: "roll" as const,
           log: [...prevState.log, "ทุกคนพร้อมแล้ว — เริ่มเกม!"],
         };
       }
@@ -74,19 +74,28 @@ export function useGame() {
     });
   }
 
+  // กดสุ่มเต๋า
+  function rollDice() {
+    if (state.phase !== "roll") return;
+    const rolled = Math.floor(Math.random() * 6) + 1;
+    setState(prev => ({
+      ...prev,
+      dice: rolled,
+      phase: "move" as const,
+      log: [...prev.log, `${prev.players[prev.turnIndex].name} ทอยได้ ${rolled}`],
+    }));
+  }
+
+  // เดิน
   function moveTo(c: Coord) {
-    const targetKey = key(c);
-    if (!reachable.has(targetKey)) return;
-    if (state.phase === "over") return;
+    if (state.phase !== "move") return;
+    if (!reachable.has(key(c))) return;
     if (!state.players[state.turnIndex].alive) return;
 
     setState(prevState => {
-      const nextPlayers = prevState.players.map((player, index) => {
-        if (index === prevState.turnIndex) {
-          return { ...player, pos: c };
-        }
-        return player;
-      });
+      const nextPlayers = prevState.players.map((player, index) =>
+        index === prevState.turnIndex ? { ...player, pos: c } : player
+      );
 
       const nextTurnIndex = (prevState.turnIndex + 1) % prevState.players.length;
       const isEndOfRound = nextTurnIndex === 0;
@@ -94,14 +103,29 @@ export function useGame() {
       const stateAfterMove: GameState = {
         ...prevState,
         players: nextPlayers,
-        phase: "move",
+        phase: "roll" as const,
         turnIndex: nextTurnIndex,
         round: isEndOfRound ? prevState.round + 1 : prevState.round,
-        dice: Math.floor(Math.random() * 6) + 1,
+        dice: 0,
         log: [...prevState.log, `${prevState.players[prevState.turnIndex].name} เดินไปที่ ${c.x},${c.y}`],
       };
 
-      const afterDino = isEndOfRound ? updateDino(stateAfterMove) : stateAfterMove;
+      // ครบรอบ → ไดโนขยับ + หิวลด
+      let afterDino = isEndOfRound ? updateDino(stateAfterMove) : stateAfterMove;
+
+      if (isEndOfRound) {
+        afterDino = {
+          ...afterDino,
+          players: afterDino.players.map(p => {
+            if (!p.alive) return p;
+            const newHunger = p.hunger - 1;
+            if (newHunger <= 0) return { ...p, hunger: 0, alive: false };
+            return { ...p, hunger: newHunger };
+          }),
+          log: [...afterDino.log, "🍖 ทุกคนหิวขึ้น 1"],
+        };
+      }
+
       const alivePlayers = afterDino.players.filter(p => p.alive);
 
       if (alivePlayers.length <= 1) {
@@ -118,6 +142,7 @@ export function useGame() {
         };
       }
 
+      // ข้ามคนตาย
       let nextIdx = nextTurnIndex;
       while (!afterDino.players[nextIdx].alive) {
         nextIdx = (nextIdx + 1) % afterDino.players.length;
@@ -127,5 +152,5 @@ export function useGame() {
     });
   }
 
-  return { state, reachable, moveTo, spawnPlayer };
+  return { state, reachable, moveTo, spawnPlayer, rollDice };
 }

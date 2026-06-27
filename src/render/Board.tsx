@@ -22,13 +22,10 @@ export function Board({ state, reachable, onCellClick }: Props) {
         <div
           key={`${x},${y}`}
           onClick={() => {
-            if (isSpawn) {
-              onCellClick({ x, y });
-            } else if (canMove) {
-              onCellClick({ x, y });
-            }
+            if (isSpawn) onCellClick({ x, y });
+            else if (canMove) onCellClick({ x, y });
           }}
-          className={`w-10 h-10 border rounded-lg flex items-center justify-center text-lg
+          className={`w-8 h-8 border rounded-md flex items-center justify-center
             ${isSpawn
               ? "bg-stone-800 border-stone-700 cursor-pointer hover:bg-stone-600"
               : canMove
@@ -36,17 +33,17 @@ export function Board({ state, reachable, onCellClick }: Props) {
                 : "bg-stone-800 border-stone-700"
             }`}
         >
-          {isDino && <span>🦖</span>}
+          {isDino && <span className="text-xs">🦖</span>}
           {player && (
             <span
-              className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-stone-900"
+              className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-stone-900"
               style={{ background: player.color }}
             >
-              P
+              {player.id + 1}
             </span>
           )}
           {!player && !isDino && canMove && (
-            <span className="w-2 h-2 rounded-full bg-amber-500 opacity-50" />
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 opacity-50" />
           )}
         </div>
       );
@@ -55,8 +52,8 @@ export function Board({ state, reachable, onCellClick }: Props) {
 
   return (
     <div
-      className="grid gap-1 p-3 bg-stone-900 rounded-xl border border-stone-700"
-      style={{ gridTemplateColumns: `repeat(${state.width}, 40px)` }}
+      className="grid gap-0.5"
+      style={{ gridTemplateColumns: `repeat(${state.width}, 32px)` }}
     >
       {cells}
     </div>
