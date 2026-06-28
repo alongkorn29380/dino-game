@@ -10,8 +10,8 @@ const INITIAL_STATE: GameState = {
   width: CONFIG.GRID_W,
   height: CONFIG.GRID_H,
   players: [
-    { id: 0, name: "ผู้เล่น 1", color: PLAYER_COLORS[0], pos: null, alive: true, hp: CONFIG.START_HP, hunger: CONFIG.HUNGER_START, inventory: [] },
-    { id: 1, name: "ผู้เล่น 2", color: PLAYER_COLORS[1], pos: null, alive: true, hp: CONFIG.START_HP, hunger: CONFIG.HUNGER_START, inventory: [] },
+    { id: 0, name: "ผู้เล่น 1", color: PLAYER_COLORS[0], pos: null, alive: true, hp: CONFIG.START_HP, hunger: CONFIG.HUNGER_START, inventory: [], buffs: [] },
+    { id: 1, name: "ผู้เล่น 2", color: PLAYER_COLORS[1], pos: null, alive: true, hp: CONFIG.START_HP, hunger: CONFIG.HUNGER_START, inventory: [], buffs: [] },
   ],
   dino: { pos: { x: Math.floor(CONFIG.GRID_W / 2), y: Math.floor(CONFIG.GRID_H / 2) } },
   turnIndex: 0,
@@ -33,7 +33,6 @@ export function useGame() {
       const cur = state.players[state.turnIndex];
       if (!cur.pos) return new Set<string>();
 
-      // ถ้าเป็นเชือก — ไฮไลต์เฉพาะช่องที่มีต้นไม้ในระยะ
       if (activeItem.kind === "rope") {
         const inRange = reachableCells(cur.pos, activeItem.effect.range, state.width, state.height, []);
         const treeKeys = new Set(
@@ -42,7 +41,6 @@ export function useGame() {
         return treeKeys;
       }
 
-      // targeting อื่นๆ — บล็อกต้นไม้ + หญ้า (เดินผ่านไม่ได้)
       const blocked = Object.entries(state.terrain).map(([k]) => {
         const [x, y] = k.split(",").map(Number);
         return { x, y };
@@ -55,7 +53,10 @@ export function useGame() {
     const cur = state.players[state.turnIndex];
     if (!cur || !cur.pos || !cur.alive) return new Set<string>();
 
-    // บล็อกต้นไม้ + หญ้า + คนอื่น + ไดโน
+    // รองเท้า buff
+    const shoesBuff = cur.buffs.find(b => b.kind === "shoes");
+    const moveRange = state.dice + (shoesBuff ? 2 : 0);
+
     const blocked = [
       ...state.players.filter(p => p.alive && p.id !== cur.id && p.pos !== null).map(p => p.pos!),
       state.dino.pos,
@@ -64,7 +65,7 @@ export function useGame() {
         return { x, y };
       }),
     ];
-    const cells = reachableCells(cur.pos, state.dice, state.width, state.height, blocked);
+    const cells = reachableCells(cur.pos, moveRange, state.width, state.height, blocked);
     return new Set(cells.map(key));
   }, [state, activeItem]);
 
@@ -228,12 +229,28 @@ export function useGame() {
           newLog.push(`🩹 ${cur.name} ใช้ผ้าพันแผล +1 HP`);
           break;
 
+        case "shoes":
+          newPlayers = newPlayers.map((p, i) =>
+            i === prevState.turnIndex
+              ? {
+                  ...p,
+                  buffs: [...p.buffs.filter(b => b.kind !== "shoes"), { kind: "shoes" as const, roundsLeft: 3 }],
+                  inventory: p.inventory.filter(it => it.id !== item.id),
+                }
+              : p
+          );
+          newLog.push(`👟 ${cur.name} ใส่รองเท้าวิ่ง +2 เดิน 3 รอบ`);
+          break;
+
         case "rock":
           if (target) {
             newPlayers = newPlayers.map(p => {
               if (!p.alive || !p.pos || key(p.pos) !== key(target)) return p;
               const hasShield = p.inventory.some(it => it.kind === "shield");
-              if (hasShield) return { ...p, inventory: p.inventory.filter(it => it.kind !== "shield") };
+              if (hasShield) {
+                newLog.push(`🛡️ ${p.name} ใช้โล่กันก้อนหิน!`);
+                return { ...p, inventory: p.inventory.filter(it => it.kind !== "shield") };
+              }
               return { ...p, hp: p.hp - 1, alive: p.hp - 1 > 0 };
             });
             newPlayers = newPlayers.map((p, i) =>
@@ -247,7 +264,6 @@ export function useGame() {
 
         case "spear":
           if (target) {
-            // เช็คว่ามีต้นไม้กั้นระหว่างผู้ยิงกับเป้าไหม
             const spearBlocked = isBlockedByTree(cur.pos!, target, prevState.terrain);
             if (spearBlocked) {
               newLog.push(`🗡️ ${cur.name} ขว้างหอกแต่โดนต้นไม้บัง!`);
@@ -255,7 +271,10 @@ export function useGame() {
               newPlayers = newPlayers.map(p => {
                 if (!p.alive || !p.pos || key(p.pos) !== key(target)) return p;
                 const hasShield = p.inventory.some(it => it.kind === "shield");
-                if (hasShield) return { ...p, inventory: p.inventory.filter(it => it.kind !== "shield") };
+                if (hasShield) {
+                  newLog.push(`🛡️ ${p.name} ใช้โล่กันหอก!`);
+                  return { ...p, inventory: p.inventory.filter(it => it.kind !== "shield") };
+                }
                 return { ...p, hp: p.hp - 1, alive: p.hp - 1 > 0 };
               });
               newLog.push(`🗡️ ${cur.name} ขว้างหอก -1 HP`);
@@ -290,7 +309,6 @@ export function useGame() {
 
         case "rope":
           if (target) {
-            // พุ่งไปอยู่ติดกับต้นไม้
             const adjacent = getAdjacentToTree(target, prevState);
             if (adjacent) {
               newPlayers = newPlayers.map((p, i) =>
@@ -353,16 +371,6 @@ export function useGame() {
           }
           break;
 
-        case "shoes":
-          // ใส่ buff shoes — เฟส 3 ค่อยทำ buff system เต็ม
-          newPlayers = newPlayers.map((p, i) =>
-            i === prevState.turnIndex
-              ? { ...p, inventory: p.inventory.filter(it => it.id !== item.id) }
-              : p
-          );
-          newLog.push(`👟 ${cur.name} ใส่รองเท้าวิ่ง +2 เดิน 3 รอบ`);
-          break;
-
         default:
           newLog.push(`${cur.name} ใช้${item.name}`);
           newPlayers = newPlayers.map((p, i) =>
@@ -392,7 +400,6 @@ export function useGame() {
     setTimeout(() => endTurn(), 0);
   }
 
-  // เช็คว่ามีต้นไม้กั้นระหว่าง 2 จุดไหม (ray cast แบบง่าย)
   function isBlockedByTree(from: Coord, to: Coord, terrain: Record<string, Terrain>): boolean {
     const dx = to.x - from.x;
     const dy = to.y - from.y;
@@ -405,7 +412,6 @@ export function useGame() {
     return false;
   }
 
-  // หาช่องที่อยู่ติดกับต้นไม้ที่เลือก (สำหรับเชือก)
   function getAdjacentToTree(treePos: Coord, state: GameState): Coord | null {
     const dirs = [{ x: 0, y: -1 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 }];
     const cur = state.players[state.turnIndex];
@@ -426,8 +432,19 @@ export function useGame() {
       const nextTurnIndex = (prevState.turnIndex + 1) % prevState.players.length;
       const isEndOfRound = nextTurnIndex === 0;
 
+      // ลด buff roundsLeft ทุกรอบ
+      let updatedPlayers = prevState.players.map(p => ({
+        ...p,
+        buffs: isEndOfRound
+          ? p.buffs
+              .map(b => ({ ...b, roundsLeft: b.roundsLeft - 1 }))
+              .filter(b => b.roundsLeft > 0)
+          : p.buffs,
+      }));
+
       let next: GameState = {
         ...prevState,
+        players: updatedPlayers,
         phase: "roll" as const,
         turnIndex: nextTurnIndex,
         round: isEndOfRound ? prevState.round + 1 : prevState.round,

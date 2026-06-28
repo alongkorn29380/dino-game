@@ -7,6 +7,11 @@ export type Dino = {
   pos: Coord;
 };
 
+export type Buff = {
+  kind: "shoes";
+  roundsLeft: number;
+}
+
 export type Player = {
   id: number;
   name: string;
@@ -16,6 +21,7 @@ export type Player = {
   hp: number;
   hunger: number;
   inventory: Item[];
+  buffs: Buff[];
 };
 
 export type ItemKind = 
