@@ -5,8 +5,14 @@ export const CONFIG = {
   MAX_PLAYERS: 10,
   DINO_SPEED: 4,
   START_HP: 3,
-  HUNGER_MAX: 10,
+  HUNGER_START: 10,   
+  HUNGER_MAX: 15,     
+  HUNGER_PER_FOOD: 3, 
   INVENTORY_CAP: 7,
+  FOOD_COUNT: 8,     
+  TREASURE_COUNT: 6, 
+  TREE_COUNT: 18,
+  GRASS_COUNT: 35, 
 };
 
 export const PLAYER_COLORS = [
