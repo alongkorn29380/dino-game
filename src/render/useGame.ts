@@ -1,9 +1,10 @@
 import { useState, useMemo } from "react";
-import type { Coord, GameState, Item, Terrain } from "../game/types";
+import type { Coord, GameState, Item } from "../game/types";
 import { reachableCells } from "../game/pathfinding";
 import { key } from "../game/grid";
 import { CONFIG, PLAYER_COLORS } from "../game/config";
-import { updateDino } from "../game/dino";
+import { applyItemEffect } from "../game/combat";
+import { endTurn } from "../game/turn";
 import { createInitialCells, respawnCell } from "../game/spawn";
 
 const INITIAL_STATE: GameState = {
@@ -35,13 +36,10 @@ export function useGame() {
 
       if (activeItem.kind === "rope") {
         const inRange = reachableCells(cur.pos, activeItem.effect.range, state.width, state.height, []);
-        const treeKeys = new Set(
-          inRange.map(key).filter(k => state.terrain[k]?.kind === "tree")
-        );
-        return treeKeys;
+        return new Set(inRange.map(key).filter(k => state.terrain[k]?.kind === "tree"));
       }
 
-      const blocked = Object.entries(state.terrain).map(([k]) => {
+      const blocked = Object.keys(state.terrain).map(k => {
         const [x, y] = k.split(",").map(Number);
         return { x, y };
       });
@@ -53,14 +51,13 @@ export function useGame() {
     const cur = state.players[state.turnIndex];
     if (!cur || !cur.pos || !cur.alive) return new Set<string>();
 
-    // รองเท้า buff
     const shoesBuff = cur.buffs.find(b => b.kind === "shoes");
     const moveRange = state.dice + (shoesBuff ? 2 : 0);
 
     const blocked = [
       ...state.players.filter(p => p.alive && p.id !== cur.id && p.pos !== null).map(p => p.pos!),
       state.dino.pos,
-      ...Object.entries(state.terrain).map(([k]) => {
+      ...Object.keys(state.terrain).map(k => {
         const [x, y] = k.split(",").map(Number);
         return { x, y };
       }),
@@ -138,8 +135,7 @@ export function useGame() {
       if (cell?.kind === "food") {
         newPlayers = newPlayers.map((p, i) => {
           if (i !== prevState.turnIndex) return p;
-          const newHunger = Math.min(p.hunger + CONFIG.HUNGER_PER_FOOD, CONFIG.HUNGER_MAX);
-          return { ...p, hunger: newHunger };
+          return { ...p, hunger: Math.min(p.hunger + CONFIG.HUNGER_PER_FOOD, CONFIG.HUNGER_MAX) };
         });
         delete newCells[cellKey];
         newCells = respawnCell({ ...prevState, cells: newCells }, "food");
@@ -176,7 +172,8 @@ export function useGame() {
     if (state.phase !== "action") return;
     if (item.effect.passive) return;
     if (!item.effect.targeting) {
-      applyItemEffect(item, null);
+      setState(prev => applyItemEffect(prev, item, null));
+      setTimeout(() => setState(prev => endTurn(prev)), 0);
     } else {
       setActiveItem(item);
     }
@@ -185,306 +182,15 @@ export function useGame() {
   function useItemOnCell(c: Coord) {
     if (!activeItem) return;
     if (!reachable.has(key(c))) return;
-    applyItemEffect(activeItem, c);
+    setState(prev => applyItemEffect(prev, activeItem, c));
     setActiveItem(null);
+    setTimeout(() => setState(prev => endTurn(prev)), 0);
   }
 
   function skipAction() {
     if (state.phase !== "action") return;
     setActiveItem(null);
-    endTurn();
-  }
-
-  function applyItemEffect(item: Item, target: Coord | null) {
-    setState(prevState => {
-      const cur = prevState.players[prevState.turnIndex];
-      let newPlayers = [...prevState.players];
-      let newCells = { ...prevState.cells };
-      let newLog = [...prevState.log];
-
-      switch (item.kind) {
-        case "medicine":
-          if (cur.hp >= CONFIG.START_HP) {
-            newLog.push(`💊 ${cur.name} HP เต็มแล้ว ใช้ยาไม่ได้`);
-            break;
-          }
-          newPlayers = newPlayers.map((p, i) =>
-            i === prevState.turnIndex
-              ? { ...p, hp: Math.min(p.hp + 1, CONFIG.START_HP), inventory: p.inventory.filter(it => it.id !== item.id) }
-              : p
-          );
-          newLog.push(`💊 ${cur.name} ใช้ยา +1 HP`);
-          break;
-
-        case "bandage":
-          if (cur.hp >= CONFIG.START_HP) {
-            newLog.push(`🩹 ${cur.name} HP เต็มแล้ว ใช้ผ้าพันแผลไม่ได้`);
-            break;
-          }
-          newPlayers = newPlayers.map((p, i) =>
-            i === prevState.turnIndex
-              ? { ...p, hp: Math.min(p.hp + 1, CONFIG.START_HP), inventory: p.inventory.filter(it => it.id !== item.id) }
-              : p
-          );
-          newLog.push(`🩹 ${cur.name} ใช้ผ้าพันแผล +1 HP`);
-          break;
-
-        case "shoes":
-          newPlayers = newPlayers.map((p, i) =>
-            i === prevState.turnIndex
-              ? {
-                  ...p,
-                  buffs: [...p.buffs.filter(b => b.kind !== "shoes"), { kind: "shoes" as const, roundsLeft: 3 }],
-                  inventory: p.inventory.filter(it => it.id !== item.id),
-                }
-              : p
-          );
-          newLog.push(`👟 ${cur.name} ใส่รองเท้าวิ่ง +2 เดิน 3 รอบ`);
-          break;
-
-        case "rock":
-          if (target) {
-            newPlayers = newPlayers.map(p => {
-              if (!p.alive || !p.pos || key(p.pos) !== key(target)) return p;
-              const hasShield = p.inventory.some(it => it.kind === "shield");
-              if (hasShield) {
-                newLog.push(`🛡️ ${p.name} ใช้โล่กันก้อนหิน!`);
-                return { ...p, inventory: p.inventory.filter(it => it.kind !== "shield") };
-              }
-              return { ...p, hp: p.hp - 1, alive: p.hp - 1 > 0 };
-            });
-            newPlayers = newPlayers.map((p, i) =>
-              i === prevState.turnIndex
-                ? { ...p, inventory: p.inventory.filter(it => it.id !== item.id) }
-                : p
-            );
-            newLog.push(`🪨 ${cur.name} ขว้างก้อนหิน`);
-          }
-          break;
-
-        case "spear":
-          if (target) {
-            const spearBlocked = isBlockedByTree(cur.pos!, target, prevState.terrain);
-            if (spearBlocked) {
-              newLog.push(`🗡️ ${cur.name} ขว้างหอกแต่โดนต้นไม้บัง!`);
-            } else {
-              newPlayers = newPlayers.map(p => {
-                if (!p.alive || !p.pos || key(p.pos) !== key(target)) return p;
-                const hasShield = p.inventory.some(it => it.kind === "shield");
-                if (hasShield) {
-                  newLog.push(`🛡️ ${p.name} ใช้โล่กันหอก!`);
-                  return { ...p, inventory: p.inventory.filter(it => it.kind !== "shield") };
-                }
-                return { ...p, hp: p.hp - 1, alive: p.hp - 1 > 0 };
-              });
-              newLog.push(`🗡️ ${cur.name} ขว้างหอก -1 HP`);
-            }
-            newPlayers = newPlayers.map((p, i) =>
-              i === prevState.turnIndex
-                ? { ...p, inventory: p.inventory.filter(it => it.id !== item.id) }
-                : p
-            );
-          }
-          break;
-
-        case "sword":
-          if (target) {
-            newPlayers = newPlayers.map(p => {
-              if (!p.alive || !p.pos || key(p.pos) !== key(target)) return p;
-              const hasShield = p.inventory.some(it => it.kind === "shield");
-              if (hasShield) {
-                newLog.push(`🛡️ ${p.name} ใช้โล่กันดาบ!`);
-                return { ...p, inventory: p.inventory.filter(it => it.kind !== "shield") };
-              }
-              return { ...p, hp: 0, alive: false };
-            });
-            newPlayers = newPlayers.map((p, i) =>
-              i === prevState.turnIndex
-                ? { ...p, inventory: p.inventory.filter(it => it.id !== item.id) }
-                : p
-            );
-            newLog.push(`⚔️ ${cur.name} ใช้ดาบ!`);
-          }
-          break;
-
-        case "rope":
-          if (target) {
-            const adjacent = getAdjacentToTree(target, prevState);
-            if (adjacent) {
-              newPlayers = newPlayers.map((p, i) =>
-                i === prevState.turnIndex ? { ...p, pos: adjacent } : p
-              );
-              newLog.push(`🪢 ${cur.name} พุ่งไปที่ต้นไม้!`);
-            }
-            newPlayers = newPlayers.map((p, i) =>
-              i === prevState.turnIndex
-                ? { ...p, inventory: p.inventory.filter(it => it.id !== item.id) }
-                : p
-            );
-          }
-          break;
-
-        case "trap":
-          if (target) {
-            const k = key(target);
-            newCells = { ...newCells, [k]: { kind: "treasure", item: { ...item } } };
-            newPlayers = newPlayers.map((p, i) =>
-              i === prevState.turnIndex
-                ? { ...p, inventory: p.inventory.filter(it => it.id !== item.id) }
-                : p
-            );
-            newLog.push(`🪤 ${cur.name} วางกับดัก`);
-          }
-          break;
-
-        case "decoy":
-          if (target) {
-            newCells = { ...newCells, [key(target)]: { kind: "treasure", item } };
-            newPlayers = newPlayers.map((p, i) =>
-              i === prevState.turnIndex
-                ? { ...p, inventory: p.inventory.filter(it => it.id !== item.id) }
-                : p
-            );
-            newLog.push(`🎵 ${cur.name} วางของล่อ`);
-          }
-          break;
-
-        case "steal":
-          if (target) {
-            const victim = newPlayers.find(p => p.alive && p.pos && key(p.pos) === key(target));
-            if (victim && victim.inventory.length > 0) {
-              const stolen = victim.inventory[Math.floor(Math.random() * victim.inventory.length)];
-              newPlayers = newPlayers.map(p => {
-                if (p.id === victim.id) return { ...p, inventory: p.inventory.filter(it => it.id !== stolen.id) };
-                if (p.id === cur.id) return { ...p, inventory: [...p.inventory.filter(it => it.id !== item.id), stolen] };
-                return p;
-              });
-              newLog.push(`🤏 ${cur.name} ขโมย${stolen.name}จาก${victim.name}`);
-            } else {
-              newPlayers = newPlayers.map((p, i) =>
-                i === prevState.turnIndex
-                  ? { ...p, inventory: p.inventory.filter(it => it.id !== item.id) }
-                  : p
-              );
-              newLog.push(`🤏 ${cur.name} ขโมยของแต่เป้าหมายไม่มีของ`);
-            }
-          }
-          break;
-
-        default:
-          newLog.push(`${cur.name} ใช้${item.name}`);
-          newPlayers = newPlayers.map((p, i) =>
-            i === prevState.turnIndex
-              ? { ...p, inventory: p.inventory.filter(it => it.id !== item.id) }
-              : p
-          );
-      }
-
-      const alivePlayers = newPlayers.filter(p => p.alive);
-      if (alivePlayers.length <= 1) {
-        return {
-          ...prevState,
-          players: newPlayers,
-          cells: newCells,
-          phase: "over" as const,
-          winnerId: alivePlayers.length === 1 ? alivePlayers[0].id : null,
-          log: [...newLog, alivePlayers.length === 1
-            ? `🏆 ${alivePlayers[0].name} ชนะ!`
-            : "☠️ ไม่มีผู้รอด!"],
-        };
-      }
-
-      return { ...prevState, players: newPlayers, cells: newCells, log: newLog };
-    });
-
-    setTimeout(() => endTurn(), 0);
-  }
-
-  function isBlockedByTree(from: Coord, to: Coord, terrain: Record<string, Terrain>): boolean {
-    const dx = to.x - from.x;
-    const dy = to.y - from.y;
-    const steps = Math.max(Math.abs(dx), Math.abs(dy));
-    for (let i = 1; i < steps; i++) {
-      const x = Math.round(from.x + (dx * i) / steps);
-      const y = Math.round(from.y + (dy * i) / steps);
-      if (terrain[key({ x, y })]?.kind === "tree") return true;
-    }
-    return false;
-  }
-
-  function getAdjacentToTree(treePos: Coord, state: GameState): Coord | null {
-    const dirs = [{ x: 0, y: -1 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 }];
-    const cur = state.players[state.turnIndex];
-    for (const d of dirs) {
-      const c = { x: treePos.x + d.x, y: treePos.y + d.y };
-      if (c.x < 0 || c.y < 0 || c.x >= state.width || c.y >= state.height) continue;
-      if (state.terrain[key(c)]) continue;
-      if (cur.pos && key(c) === key(cur.pos)) continue;
-      return c;
-    }
-    return null;
-  }
-
-  function endTurn() {
-    setState(prevState => {
-      if (prevState.phase === "over") return prevState;
-
-      const nextTurnIndex = (prevState.turnIndex + 1) % prevState.players.length;
-      const isEndOfRound = nextTurnIndex === 0;
-
-      // ลด buff roundsLeft ทุกรอบ
-      let updatedPlayers = prevState.players.map(p => ({
-        ...p,
-        buffs: isEndOfRound
-          ? p.buffs
-              .map(b => ({ ...b, roundsLeft: b.roundsLeft - 1 }))
-              .filter(b => b.roundsLeft > 0)
-          : p.buffs,
-      }));
-
-      let next: GameState = {
-        ...prevState,
-        players: updatedPlayers,
-        phase: "roll" as const,
-        turnIndex: nextTurnIndex,
-        round: isEndOfRound ? prevState.round + 1 : prevState.round,
-        dice: 0,
-      };
-
-      let afterDino = isEndOfRound ? updateDino(next) : next;
-
-      if (isEndOfRound) {
-        afterDino = {
-          ...afterDino,
-          players: afterDino.players.map(p => {
-            if (!p.alive) return p;
-            const newHunger = p.hunger - 1;
-            if (newHunger <= 0) return { ...p, hunger: 0, alive: false };
-            return { ...p, hunger: newHunger };
-          }),
-          log: [...afterDino.log, "🍖 ทุกคนหิวขึ้น 1"],
-        };
-      }
-
-      const alivePlayers = afterDino.players.filter(p => p.alive);
-      if (alivePlayers.length <= 1) {
-        return {
-          ...afterDino,
-          phase: "over" as const,
-          winnerId: alivePlayers.length === 1 ? alivePlayers[0].id : null,
-          log: [...afterDino.log, alivePlayers.length === 1
-            ? `🏆 ${alivePlayers[0].name} รอดเป็นคนสุดท้าย!`
-            : "☠️ จบเกม — ไม่มีผู้รอดชีวิต!"],
-        };
-      }
-
-      let nextIdx = nextTurnIndex;
-      while (!afterDino.players[nextIdx].alive) {
-        nextIdx = (nextIdx + 1) % afterDino.players.length;
-      }
-
-      return { ...afterDino, turnIndex: nextIdx };
-    });
+    setState(prev => endTurn(prev));
   }
 
   return { state, reachable, activeItem, moveTo, spawnPlayer, rollDice, selectItem, skipAction };
