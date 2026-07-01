@@ -6,7 +6,7 @@ type Props = {
   position: { x: number; y: number };
 };
 
-const SCALE = 1.2;
+const SCALE = 2.3;
 
 export function Dino({ position }: Props) {
   const { nodes } = useGLTF("/models/Dino.glb");
@@ -17,7 +17,7 @@ export function Dino({ position }: Props) {
   useEffect(() => {
     if (!groupRef.current) return;
     // smooth เดินไปตำแหน่งใหม่ ทำแบบง่ายก่อน (เดี๋ยวใส่ animation)
-    groupRef.current.position.set(position.x, 0.2, position.y);
+    groupRef.current.position.set(position.x, 0.15, position.y);
   }, [position]);
 
   if (!template) {

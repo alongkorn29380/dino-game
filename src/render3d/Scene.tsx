@@ -4,6 +4,7 @@ import { TileFloor } from "./TileFloor";
 import { Tree } from "./Tree";
 import { Bush } from "./Bush";
 import { Dino } from "./Dino";
+import { Character } from "./Character";
 
 // สุ่มตำแหน่งไม่ซ้ำกัน
 function generateUniquePositions(count: number, gridSize: number, exclude: Set<string> = new Set()) {
@@ -38,6 +39,8 @@ export function Scene() {
         <Tree positions={testTrees} />
         <Bush positions={testBushes} />
         <Dino position={{ x: 12, y: 12 }} />
+        <Character position={{ x: 5, y: 5 }} color="#e8763c" />
+        <Character position={{ x: 8, y: 8 }} color="#46ad96" />
         <OrbitControls target={[12, 0, 12]} />
       </Canvas>
     </div>
