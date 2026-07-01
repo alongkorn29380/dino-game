@@ -3,6 +3,7 @@ import { OrbitControls } from "@react-three/drei";
 import { TileFloor } from "./TileFloor";
 import { Tree } from "./Tree";
 import { Bush } from "./Bush";
+import { Dino } from "./Dino";
 
 // สุ่มตำแหน่งไม่ซ้ำกัน
 function generateUniquePositions(count: number, gridSize: number, exclude: Set<string> = new Set()) {
@@ -36,6 +37,7 @@ export function Scene() {
         <TileFloor width={24} height={24} />
         <Tree positions={testTrees} />
         <Bush positions={testBushes} />
+        <Dino position={{ x: 12, y: 12 }} />
         <OrbitControls target={[12, 0, 12]} />
       </Canvas>
     </div>
